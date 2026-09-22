@@ -60,14 +60,15 @@ def target_path(material_number: str) -> Path:
     return OUTPUT_DIR / f"{material_number}.xlsx"
 
 
-def click_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
-    """Klickt auf das erste sichtbare Element mit einem der angegebenen
+def locate_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS):
+    """Liefert das erste sichtbare Element mit einem der angegebenen
     Texte. `text` kann ein einzelner String oder eine Liste mehrerer
-    moeglicher Beschriftungen sein - relevant, weil Windchill je nach
+    moeglicher Beschriftungen sein - noetig, weil Windchill je nach
     Spracheinstellung der Session unterschiedlich beschriftet ist (z. B.
-    Tab "Structure" vs. "Struktur"), waehrend andere Elemente wie
-    "Reports"/"Actions"/"Export List to XLSX" durchgehend englisch
-    bleiben (beides per DevTools verifiziert).
+    Tab "Structure"/"Struktur", "Reports"/"Berichte", "Actions"/
+    "Aktionen", "Multilevel Report"/"mehrstufiger Bericht", "Export List
+    to File"/"Liste in Datei exportieren", "Export List to XLSX"/"Liste
+    in xlsx exportieren" - jeweils per DevTools verifiziert).
 
     Bevorzugt echte Link- bzw. Button-Elemente (role="link"/"button") -
     das vermeidet, dass rein informativer Text mit demselben Inhalt
@@ -77,24 +78,33 @@ def click_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
     """
     labels = [text] if isinstance(text, str) else list(text)
 
-    def try_click(locator, wait_timeout: int) -> bool:
+    def probe(locator, wait_timeout: int):
         try:
             locator.wait_for(state="visible", timeout=wait_timeout)
-            locator.click()
-            return True
+            return locator
         except PlaywrightTimeoutError:
-            return False
+            return None
 
     for label in labels:
         for role in ("link", "button"):
-            if try_click(scope.get_by_role(role, name=label, exact=True).first, 3000):
-                return
+            found = probe(scope.get_by_role(role, name=label, exact=True).first, 3000)
+            if found is not None:
+                return found
 
     for index, label in enumerate(labels):
         is_last = index == len(labels) - 1
         wait_timeout = timeout if is_last else 3000
-        if try_click(scope.get_by_text(label, exact=True).first, wait_timeout):
-            return
+        found = probe(scope.get_by_text(label, exact=True).first, wait_timeout)
+        if found is not None:
+            return found
+
+    raise PlaywrightTimeoutError(f"Kein Element mit Text {labels!r} gefunden.")
+
+
+def click_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
+    """Klickt auf das erste sichtbare Element mit einem der angegebenen
+    Texte. Siehe locate_text() fuer die Such-/Mehrsprachigkeitslogik."""
+    locate_text(scope, text, timeout).click()
 
 
 def find_search_box(page):
@@ -209,24 +219,23 @@ def run_export(material_number: str, output_path: Path) -> None:
             click_text(page, ["Structure", "Struktur"])
 
             print("Oeffne Multilevel Report ...")
-            click_text(page, "Reports")
+            click_text(page, ["Reports", "Berichte"])
             with context.expect_page(timeout=DEFAULT_TIMEOUT_MS) as new_page_info:
-                click_text(page, "Multilevel Report")
+                click_text(page, ["Multilevel Report", "mehrstufiger Bericht"])
             report_page = new_page_info.value
             report_page.wait_for_load_state()
 
             print("Exportiere als XLSX ...")
-            click_text(report_page, "Actions")
+            click_text(report_page, ["Actions", "Aktionen"])
             # "Export List to File" ist ein Untermenue, das sich erst per
             # Hover oeffnet (nicht per Klick) - erst danach ist "Export
             # List to XLSX" sichtbar.
-            export_submenu = report_page.get_by_role(
-                "link", name="Export List to File", exact=True
-            ).first
-            export_submenu.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
+            export_submenu = locate_text(
+                report_page, ["Export List to File", "Liste in Datei exportieren"]
+            )
             export_submenu.hover()
             with report_page.expect_download(timeout=DEFAULT_TIMEOUT_MS) as download_info:
-                click_text(report_page, "Export List to XLSX")
+                click_text(report_page, ["Export List to XLSX", "Liste in xlsx exportieren"])
             download = download_info.value
             download.save_as(str(output_path))
 
