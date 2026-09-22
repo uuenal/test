@@ -63,10 +63,24 @@ def target_path(material_number: str) -> Path:
 def click_text(scope, text: str, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
     """Klickt auf das erste sichtbare Element mit exakt diesem Text.
 
-    Windchill nutzt kein einheitliches ARIA-Rollen-Schema, daher wird
-    bewusst auf sichtbaren Text statt auf Rollen/CSS-Selektoren gezielt -
-    das ist robuster gegenueber internen DOM-Aenderungen.
+    Bevorzugt ein echtes Link-Element (role="link", <a>-Tag). Windchill
+    rendert die relevanten Aktionen (Suchtreffer, Structure, Multi-level
+    Report, Export List to XLSX, ...) durchgehend als Links - von der
+    Bildschirmaufnahme als "(Link)" bestaetigt, und am Suchtreffer per
+    DevTools verifiziert. Gezielt auf role="link" zu filtern vermeidet,
+    dass rein informativer Text mit demselben Inhalt (z. B. die auf der
+    Suchergebnisseite angezeigten Suchkriterien) faelschlich getroffen
+    wird. Fallback auf reinen Text fuer Elemente, die keine <a>-Tags sind
+    (z. B. Toolbar-Buttons wie "Reports"/"Actions").
     """
+    link = scope.get_by_role("link", name=text, exact=True).first
+    try:
+        link.wait_for(state="visible", timeout=3000)
+        link.click()
+        return
+    except PlaywrightTimeoutError:
+        pass
+
     locator = scope.get_by_text(text, exact=True).first
     locator.wait_for(state="visible", timeout=timeout)
     locator.click()
