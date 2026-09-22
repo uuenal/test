@@ -273,7 +273,14 @@ def run_export(material_number: str, output_path: Path) -> None:
                 report_page, ["Export List to File", "Liste in Datei exportieren"]
             )
             export_submenu.hover()
-            with report_page.expect_download(timeout=DEFAULT_TIMEOUT_MS) as download_info:
+            # Auf Kontext-Ebene abfangen statt auf report_page: dieses
+            # alte JSP-Popup schliesst sich offenbar selbst kurz nach dem
+            # Download-Start (der native "Speichern unter"-Dialog, der
+            # das im echten Browser blockieren wuerde, entfaellt unter
+            # Playwright, da Downloads automatisch akzeptiert werden) -
+            # das fuehrte zu "Target page ... has been closed" bei
+            # save_as(), wenn auf der Seite selbst gelauscht wurde.
+            with context.expect_event("download", timeout=DEFAULT_TIMEOUT_MS) as download_info:
                 click_text(report_page, ["Export List to XLSX", "Liste in XLSX exportieren"])
             download = download_info.value
             download.save_as(str(output_path))
