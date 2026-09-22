@@ -28,6 +28,7 @@ OUTPUT_DIR = Path(
 )
 EDGE_PROFILE_DIR = Path.home() / "AppData" / "Local" / "WindchillBomTool" / "edge-profile"
 DEBUG_SCREENSHOT = Path(__file__).parent / "letzter_fehler.png"
+DEBUG_HTML = Path(__file__).parent / "letzter_fehler.html"
 
 DEFAULT_TIMEOUT_MS = 20_000
 MATERIAL_NUMBER_PATTERN = re.compile(r"^[A-Za-z0-9]+$")
@@ -254,6 +255,11 @@ def run_export(material_number: str, output_path: Path) -> None:
                 DEBUG_SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(DEBUG_SCREENSHOT))
                 print(f"Screenshot des Fehlerzustands gespeichert: {DEBUG_SCREENSHOT}")
+            except Exception:
+                pass
+            try:
+                DEBUG_HTML.write_text(page.content(), encoding="utf-8")
+                print(f"HTML des Fehlerzustands gespeichert: {DEBUG_HTML}")
             except Exception:
                 pass
             raise
