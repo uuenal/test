@@ -60,31 +60,41 @@ def target_path(material_number: str) -> Path:
     return OUTPUT_DIR / f"{material_number}.xlsx"
 
 
-def click_text(scope, text: str, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
-    """Klickt auf das erste sichtbare Element mit exakt diesem Text.
+def click_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
+    """Klickt auf das erste sichtbare Element mit einem der angegebenen
+    Texte. `text` kann ein einzelner String oder eine Liste mehrerer
+    moeglicher Beschriftungen sein - relevant, weil Windchill je nach
+    Spracheinstellung der Session unterschiedlich beschriftet ist (z. B.
+    Tab "Structure" vs. "Struktur"), waehrend andere Elemente wie
+    "Reports"/"Actions"/"Export List to XLSX" durchgehend englisch
+    bleiben (beides per DevTools verifiziert).
 
-    Bevorzugt echte Link- bzw. Button-Elemente (role="link"/"button").
-    Windchill rendert Aktionen wie Suchtreffer, Structure und die
-    Export-Menuepunkte als <a>-Links, waehrend "Reports" und "Actions"
-    echte <button>-Elemente sind (beides per DevTools verifiziert).
-    Gezielt auf diese Rollen zu filtern vermeidet, dass rein informativer
-    Text mit demselben Inhalt (z. B. die auf der Suchergebnisseite
-    angezeigten Suchkriterien) faelschlich getroffen wird. Fallback auf
-    reinen Text, falls keine der beiden Rollen passt (z. B. Tabs wie
-    "Structure", die als <span> gerendert werden).
+    Bevorzugt echte Link- bzw. Button-Elemente (role="link"/"button") -
+    das vermeidet, dass rein informativer Text mit demselben Inhalt
+    (z. B. die auf der Suchergebnisseite angezeigten Suchkriterien)
+    faelschlich getroffen wird. Fallback auf reinen Text, falls keine der
+    beiden Rollen passt (z. B. Tabs, die als <span> gerendert werden).
     """
-    for role in ("link", "button"):
-        candidate = scope.get_by_role(role, name=text, exact=True).first
-        try:
-            candidate.wait_for(state="visible", timeout=3000)
-            candidate.click()
-            return
-        except PlaywrightTimeoutError:
-            continue
+    labels = [text] if isinstance(text, str) else list(text)
 
-    locator = scope.get_by_text(text, exact=True).first
-    locator.wait_for(state="visible", timeout=timeout)
-    locator.click()
+    def try_click(locator, wait_timeout: int) -> bool:
+        try:
+            locator.wait_for(state="visible", timeout=wait_timeout)
+            locator.click()
+            return True
+        except PlaywrightTimeoutError:
+            return False
+
+    for label in labels:
+        for role in ("link", "button"):
+            if try_click(scope.get_by_role(role, name=label, exact=True).first, 3000):
+                return
+
+    for index, label in enumerate(labels):
+        is_last = index == len(labels) - 1
+        wait_timeout = timeout if is_last else 3000
+        if try_click(scope.get_by_text(label, exact=True).first, wait_timeout):
+            return
 
 
 def find_search_box(page):
@@ -196,7 +206,7 @@ def run_export(material_number: str, output_path: Path) -> None:
             click_text(page, material_number)
 
             print("Oeffne Structure-Ansicht ...")
-            click_text(page, "Structure")
+            click_text(page, ["Structure", "Struktur"])
 
             print("Oeffne Multilevel Report ...")
             click_text(page, "Reports")
