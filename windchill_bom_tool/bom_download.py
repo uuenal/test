@@ -81,13 +81,15 @@ def find_search_box(page):
     danach laeuft der Rest wieder automatisch (gleiches Prinzip wie beim
     bestehenden SAP-Tool).
     """
+    # Absichtlich KEIN "letztes sichtbares Textfeld"-Fallback mehr: das hat
+    # zuverlaessig ein verstecktes internes Feld des "Alle Typen"-Dropdowns
+    # getroffen statt des echten Suchfelds und dieses dabei geoeffnet.
     candidates = [
         lambda: page.locator("input[placeholder*='Such' i]"),
         lambda: page.locator("input[placeholder*='Search' i]"),
         lambda: page.get_by_role("searchbox"),
         lambda: page.locator("input[type='search']"),
         lambda: page.locator("input[title*='Search' i]"),
-        lambda: page.locator("input[type='text']:visible").last,
     ]
     for build_locator in candidates:
         try:
@@ -96,6 +98,10 @@ def find_search_box(page):
             return locator
         except PlaywrightTimeoutError:
             continue
+
+    # Falls das faelschlich geoeffnete "Alle Typen"-Dropdown noch offen ist
+    # (aus einem vorherigen Fehlversuch), erst schliessen.
+    page.keyboard.press("Escape")
 
     print()
     print("Das Suchfeld konnte nicht automatisch gefunden werden.")
