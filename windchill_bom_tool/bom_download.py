@@ -82,6 +82,8 @@ def find_search_box(page):
     bestehenden SAP-Tool).
     """
     candidates = [
+        lambda: page.locator("input[placeholder*='Such' i]"),
+        lambda: page.locator("input[placeholder*='Search' i]"),
         lambda: page.get_by_role("searchbox"),
         lambda: page.locator("input[type='search']"),
         lambda: page.locator("input[title*='Search' i]"),
