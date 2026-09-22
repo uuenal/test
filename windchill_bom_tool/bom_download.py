@@ -104,6 +104,45 @@ def find_search_box(page):
     return None
 
 
+NOTICE_CONFIRM_LABELS = (
+    "OK",
+    "Weiter",
+    "Akzeptieren",
+    "Accept",
+    "Continue",
+    "I Agree",
+    "Bestaetigen",
+    "Bestätigen",
+    "Submit",
+)
+
+
+def dismiss_startup_notice(page) -> None:
+    """Manche Windchill-Profile zeigen beim ersten Aufruf einen CUI-Hinweis
+    ("Controlled Unclassified Information") mit einer Checkbox "Diese Seite
+    beim Start nicht anzeigen". Wird best-effort weggeklickt, falls
+    vorhanden - kein Fehler, wenn die Seite gar nicht auftaucht.
+    """
+    try:
+        checkbox = page.get_by_role("checkbox").first
+        checkbox.wait_for(state="visible", timeout=3000)
+        checkbox.check()
+    except PlaywrightTimeoutError:
+        return
+
+    for label in NOTICE_CONFIRM_LABELS:
+        try:
+            button = page.get_by_text(label, exact=True).first
+            button.wait_for(state="visible", timeout=1000)
+            button.click()
+            return
+        except PlaywrightTimeoutError:
+            continue
+
+    # Kein passender Button gefunden - evtl. reicht das Setzen der Checkbox.
+    page.keyboard.press("Enter")
+
+
 def run_export(material_number: str, output_path: Path) -> None:
     EDGE_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -120,6 +159,7 @@ def run_export(material_number: str, output_path: Path) -> None:
         try:
             print("Oeffne Windchill ...")
             page.goto(WINDCHILL_URL, wait_until="networkidle")
+            dismiss_startup_notice(page)
 
             print(f"Suche Materialnummer {material_number} ...")
             search_box = find_search_box(page)
