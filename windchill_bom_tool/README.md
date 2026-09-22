@@ -1,7 +1,7 @@
 # Windchill BOM-Download-Tool
 
 Automatisiert den bisher manuellen Ablauf: Materialnummer in Windchill
-suchen, Multi-level Report der Baugruppenstruktur oeffnen und als Excel
+suchen, Multilevel Report der Baugruppenstruktur oeffnen und als Excel
 (`.xlsx`) speichern.
 
 ## Nutzung
@@ -26,17 +26,14 @@ ueberschrieben (keine Duplikate pro Materialnummer).
 - Beim ersten Start installiert das `.bat`-Skript automatisch das Python-
   Paket `playwright` (`pip install -r requirements.txt`).
 
-## Bekannte Einschraenkungen / erster Testlauf
+## Bekannte Einschraenkungen
 
-Die Klick-Schritte wurden aus einer Bildschirmaufnahme (Windows Steps
-Recorder) abgeleitet, nicht aus dem tatsaechlichen Seitenquelltext von
-Windchill. Die sichtbaren Texte ("Structure", "Reports", "Multi-level
-Report", "Actions", "Export List to XLSX") sind exakt aus den
-Screenshots uebernommen und sollten stabil funktionieren - falls beim
-ersten Testlauf trotzdem ein Schritt nicht automatisch klappt (z. B. das
-Suchfeld nicht gefunden wird), fragt das Tool an dieser Stelle nach einem
-einmaligen manuellen Klick und laeuft danach automatisch weiter, statt
-einfach abzubrechen.
+Alle Klick-Schritte (Suchfeld, Suchtreffer, Structure, Reports,
+Multilevel Report, Actions, Export List to File/XLSX) wurden inzwischen
+per Browser-DevTools am echten Seitenquelltext verifiziert. Falls
+Windchill dennoch einmal aktualisiert wird und sich ein Selektor aendert,
+fragt das Suchfeld-Handling als letzte Sicherheitsstufe nach einem
+einmaligen manuellen Klick, statt einfach abzubrechen.
 
 Bei einem Fehler wird zusaetzlich ein Screenshot des aktuellen
 Browser-Zustands unter `letzter_fehler.png` gespeichert - das hilft, den

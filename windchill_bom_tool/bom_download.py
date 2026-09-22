@@ -1,11 +1,11 @@
 """BOM-Download-Tool fuer Windchill (ABB PLM).
 
-Sucht eine Materialnummer in Windchill, oeffnet den Multi-level Report
+Sucht eine Materialnummer in Windchill, oeffnet den Multilevel Report
 der Baugruppenstruktur und speichert ihn als Excel-Datei im Zielordner.
 
 Ablauf entspricht der manuell aufgenommenen Schrittfolge:
-Suche -> Treffer oeffnen -> Structure-Tab -> Reports -> Multi-level Report
--> Actions -> Export List to XLSX.
+Suche -> Treffer oeffnen -> Structure-Tab -> Reports -> Multilevel Report
+-> Actions -> Export List to File (Hover) -> Export List to XLSX.
 
 Hinweis: Windchill wird direkt im Browser (Edge) angesteuert, nicht ueber
 den Windchill Workgroup Manager. Der automatische Windows-SSO-Login greift
@@ -63,23 +63,24 @@ def target_path(material_number: str) -> Path:
 def click_text(scope, text: str, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
     """Klickt auf das erste sichtbare Element mit exakt diesem Text.
 
-    Bevorzugt ein echtes Link-Element (role="link", <a>-Tag). Windchill
-    rendert die relevanten Aktionen (Suchtreffer, Structure, Multi-level
-    Report, Export List to XLSX, ...) durchgehend als Links - von der
-    Bildschirmaufnahme als "(Link)" bestaetigt, und am Suchtreffer per
-    DevTools verifiziert. Gezielt auf role="link" zu filtern vermeidet,
-    dass rein informativer Text mit demselben Inhalt (z. B. die auf der
-    Suchergebnisseite angezeigten Suchkriterien) faelschlich getroffen
-    wird. Fallback auf reinen Text fuer Elemente, die keine <a>-Tags sind
-    (z. B. Toolbar-Buttons wie "Reports"/"Actions").
+    Bevorzugt echte Link- bzw. Button-Elemente (role="link"/"button").
+    Windchill rendert Aktionen wie Suchtreffer, Structure und die
+    Export-Menuepunkte als <a>-Links, waehrend "Reports" und "Actions"
+    echte <button>-Elemente sind (beides per DevTools verifiziert).
+    Gezielt auf diese Rollen zu filtern vermeidet, dass rein informativer
+    Text mit demselben Inhalt (z. B. die auf der Suchergebnisseite
+    angezeigten Suchkriterien) faelschlich getroffen wird. Fallback auf
+    reinen Text, falls keine der beiden Rollen passt (z. B. Tabs wie
+    "Structure", die als <span> gerendert werden).
     """
-    link = scope.get_by_role("link", name=text, exact=True).first
-    try:
-        link.wait_for(state="visible", timeout=3000)
-        link.click()
-        return
-    except PlaywrightTimeoutError:
-        pass
+    for role in ("link", "button"):
+        candidate = scope.get_by_role(role, name=text, exact=True).first
+        try:
+            candidate.wait_for(state="visible", timeout=3000)
+            candidate.click()
+            return
+        except PlaywrightTimeoutError:
+            continue
 
     locator = scope.get_by_text(text, exact=True).first
     locator.wait_for(state="visible", timeout=timeout)
@@ -197,15 +198,23 @@ def run_export(material_number: str, output_path: Path) -> None:
             print("Oeffne Structure-Ansicht ...")
             click_text(page, "Structure")
 
-            print("Oeffne Multi-level Report ...")
+            print("Oeffne Multilevel Report ...")
             click_text(page, "Reports")
             with context.expect_page(timeout=DEFAULT_TIMEOUT_MS) as new_page_info:
-                click_text(page, "Multi-level Report")
+                click_text(page, "Multilevel Report")
             report_page = new_page_info.value
             report_page.wait_for_load_state()
 
             print("Exportiere als XLSX ...")
             click_text(report_page, "Actions")
+            # "Export List to File" ist ein Untermenue, das sich erst per
+            # Hover oeffnet (nicht per Klick) - erst danach ist "Export
+            # List to XLSX" sichtbar.
+            export_submenu = report_page.get_by_role(
+                "link", name="Export List to File", exact=True
+            ).first
+            export_submenu.wait_for(state="visible", timeout=DEFAULT_TIMEOUT_MS)
+            export_submenu.hover()
             with report_page.expect_download(timeout=DEFAULT_TIMEOUT_MS) as download_info:
                 click_text(report_page, "Export List to XLSX")
             download = download_info.value
