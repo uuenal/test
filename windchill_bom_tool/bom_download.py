@@ -236,7 +236,7 @@ def run_export(material_number: str, output_path: Path) -> None:
             print("Oeffne Multilevel Report ...")
             click_text(structure_frame, ["Reports", "Berichte"])
             with context.expect_page(timeout=DEFAULT_TIMEOUT_MS) as new_page_info:
-                click_text(structure_frame, ["Multilevel Report", "mehrstufiger Bericht"])
+                click_text(structure_frame, ["Multilevel Report", "Mehrstufiger Bericht"])
             report_page = new_page_info.value
             report_page.wait_for_load_state()
 
