@@ -15,6 +15,7 @@ Firmennetz oder per VPN verbunden sein.
 
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -61,51 +62,58 @@ def target_path(material_number: str) -> Path:
     return OUTPUT_DIR / f"{material_number}.xlsx"
 
 
-def locate_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS):
+def locate_text(page, text, timeout: int = DEFAULT_TIMEOUT_MS):
     """Liefert das erste sichtbare Element mit einem der angegebenen
-    Texte. `text` kann ein einzelner String oder eine Liste mehrerer
-    moeglicher Beschriftungen sein - noetig, weil Windchill je nach
-    Spracheinstellung der Session unterschiedlich beschriftet ist (z. B.
-    Tab "Structure"/"Struktur", "Reports"/"Berichte", "Actions"/
-    "Aktionen", "Multilevel Report"/"mehrstufiger Bericht", "Export List
-    to File"/"Liste in Datei exportieren", "Export List to XLSX"/"Liste
-    in xlsx exportieren" - jeweils per DevTools verifiziert).
+    Texte - durchsucht dabei das Hauptdokument UND alle eingebetteten
+    iframes von `page`. Windchill rendert zentrale Bereiche (Structure-
+    Ansicht, Multi-level-Report-Popup, ...) wiederholt in eigenen,
+    dynamisch generierten iframes ohne vorhersagbare feste ID - deshalb
+    wird hier nicht auf eine bestimmte iframe-Id vertraut, sondern
+    generisch ueber `page.frames` gesucht (das Hauptdokument ist darin
+    bereits enthalten).
+
+    `text` kann ein einzelner String oder eine Liste mehrerer moeglicher
+    Beschriftungen sein - noetig, weil Windchill je nach Spracheinstellung
+    der Session unterschiedlich beschriftet ist (z. B. Tab "Structure"/
+    "Struktur", "Reports"/"Berichte", "Actions"/"Aktionen", "Multilevel
+    Report"/"Mehrstufiger Bericht", "Export List to File"/"Liste in Datei
+    exportieren", "Export List to XLSX"/"Liste in xlsx exportieren" -
+    jeweils per DevTools bzw. Screenshot verifiziert).
 
     Bevorzugt echte Link- bzw. Button-Elemente (role="link"/"button") -
     das vermeidet, dass rein informativer Text mit demselben Inhalt
     (z. B. die auf der Suchergebnisseite angezeigten Suchkriterien)
     faelschlich getroffen wird. Fallback auf reinen Text, falls keine der
     beiden Rollen passt (z. B. Tabs, die als <span> gerendert werden).
+
+    Alle Kombinationen aus Frame/Sprachvariante/Rolle werden rundenweise
+    mit kurzen Probes durchprobiert, bis der volle Timeout ausgeschoepft
+    ist - so bekommt kein Kandidat unfair wenig Zeit, egal in welchem
+    Frame oder an welcher Position in der Liste er steht.
     """
     labels = [text] if isinstance(text, str) else list(text)
+    probe_timeout = 300
+    deadline = time.monotonic() + timeout / 1000
 
-    def combine(build_locator):
-        combined = None
-        for label in labels:
-            candidate = build_locator(label)
-            combined = candidate if combined is None else combined.or_(candidate)
-        return combined.first
-
-    def probe(locator, wait_timeout: int):
+    def probe(locator) -> bool:
         try:
-            locator.wait_for(state="visible", timeout=wait_timeout)
-            return locator
+            locator.wait_for(state="visible", timeout=probe_timeout)
+            return True
         except PlaywrightTimeoutError:
-            return None
+            return False
 
-    # Alle Sprachvarianten zu je einem Locator kombinieren (Playwright
-    # .or_()), statt sie nacheinander mit kuenstlich verkuerzten Timeouts
-    # abzuklappern - sonst bekommt nur der zuletzt probierte Kandidat die
-    # volle Wartezeit, obwohl z. B. der erste (korrekte) Kandidat nur
-    # etwas laenger zum Rendern braucht.
-    for role in ("link", "button"):
-        found = probe(combine(lambda label, role=role: scope.get_by_role(role, name=label, exact=True)), timeout)
-        if found is not None:
-            return found
-
-    found = probe(combine(lambda label: scope.get_by_text(label, exact=True)), timeout)
-    if found is not None:
-        return found
+    while True:
+        for scope in [page] + list(page.frames):
+            for label in labels:
+                for role in ("link", "button"):
+                    candidate = scope.get_by_role(role, name=label, exact=True).first
+                    if probe(candidate):
+                        return candidate
+                candidate = scope.get_by_text(label, exact=True).first
+                if probe(candidate):
+                    return candidate
+        if time.monotonic() >= deadline:
+            break
 
     raise PlaywrightTimeoutError(f"Kein Element mit Text {labels!r} gefunden.")
 
@@ -208,6 +216,7 @@ def run_export(material_number: str, output_path: Path) -> None:
         )
         page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(DEFAULT_TIMEOUT_MS)
+        report_page = None
 
         try:
             print("Oeffne Windchill ...")
@@ -227,16 +236,15 @@ def run_export(material_number: str, output_path: Path) -> None:
             print("Oeffne Structure-Ansicht ...")
             click_text(page, ["Structure", "Struktur"])
 
-            # Der komplette Struktur-Bereich (inkl. Reports/Berichte-
-            # Toolbar) laedt in einem eigenen iframe (id="msrIFrame"),
-            # per letztem Fehler-HTML-Dump bestaetigt - dort muss gezielt
-            # gesucht werden, nicht im Hauptdokument.
-            structure_frame = page.frame_locator("#msrIFrame")
-
+            # Windchill rendert zentrale Bereiche wie die Structure-
+            # Ansicht wiederholt in eigenen iframes (z. B. "#msrIFrame",
+            # per Fehler-HTML-Dump bestaetigt) - locate_text()/click_text()
+            # suchen deshalb generisch in page + allen ihren Frames statt
+            # in einer fest angenommenen iframe-Id.
             print("Oeffne Multilevel Report ...")
-            click_text(structure_frame, ["Reports", "Berichte"])
+            click_text(page, ["Reports", "Berichte"])
             with context.expect_page(timeout=DEFAULT_TIMEOUT_MS) as new_page_info:
-                click_text(structure_frame, ["Multilevel Report", "Mehrstufiger Bericht"])
+                click_text(page, ["Multilevel Report", "Mehrstufiger Bericht"])
             report_page = new_page_info.value
             report_page.wait_for_load_state()
 
@@ -257,17 +265,27 @@ def run_export(material_number: str, output_path: Path) -> None:
             print(f"Fertig. Gespeichert unter: {output_path}")
 
         except Exception:
-            try:
-                DEBUG_SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(DEBUG_SCREENSHOT))
-                print(f"Screenshot des Fehlerzustands gespeichert: {DEBUG_SCREENSHOT}")
-            except Exception:
-                pass
-            try:
-                DEBUG_HTML.write_text(page.content(), encoding="utf-8")
-                print(f"HTML des Fehlerzustands gespeichert: {DEBUG_HTML}")
-            except Exception:
-                pass
+            # Bei einem Fehler im Popup-Fenster (report_page) ist dessen
+            # Zustand relevant, nicht der der urspruenglichen Seite -
+            # deshalb beide sichern, falls vorhanden.
+            pages_to_dump = [("page", page)]
+            if report_page is not None:
+                pages_to_dump.append(("report_page", report_page))
+
+            for name, dump_page in pages_to_dump:
+                try:
+                    DEBUG_SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
+                    screenshot_path = DEBUG_SCREENSHOT.with_name(f"letzter_fehler_{name}.png")
+                    dump_page.screenshot(path=str(screenshot_path))
+                    print(f"Screenshot des Fehlerzustands gespeichert: {screenshot_path}")
+                except Exception:
+                    pass
+                try:
+                    html_path = DEBUG_HTML.with_name(f"letzter_fehler_{name}.html")
+                    html_path.write_text(dump_page.content(), encoding="utf-8")
+                    print(f"HTML des Fehlerzustands gespeichert: {html_path}")
+                except Exception:
+                    pass
             raise
         finally:
             context.close()

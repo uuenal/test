@@ -30,15 +30,20 @@ ueberschrieben (keine Duplikate pro Materialnummer).
 
 Alle Klick-Schritte (Suchfeld, Suchtreffer, Structure, Reports,
 Multilevel Report, Actions, Export List to File/XLSX) wurden inzwischen
-per Browser-DevTools am echten Seitenquelltext verifiziert. Falls
+per Browser-DevTools am echten Seitenquelltext verifiziert. Manche
+Bereiche (z. B. die Structure-Ansicht) rendern in eigenen, dynamisch
+generierten iframes - die Suche laeuft deshalb generisch ueber die Seite
+und alle ihre Frames, statt eine feste iframe-Id anzunehmen. Falls
 Windchill dennoch einmal aktualisiert wird und sich ein Selektor aendert,
 fragt das Suchfeld-Handling als letzte Sicherheitsstufe nach einem
 einmaligen manuellen Klick, statt einfach abzubrechen.
 
-Bei einem Fehler wird zusaetzlich ein Screenshot des aktuellen
-Browser-Zustands unter `letzter_fehler.png` gespeichert - das hilft, den
-betroffenen Schritt schnell zu identifizieren und die Selektoren im
-Skript gezielt nachzujustieren.
+Bei einem Fehler wird zusaetzlich ein Screenshot und der HTML-Quellcode
+der betroffenen Seite(n) gespeichert (`letzter_fehler_page.*` fuer das
+Hauptfenster, zusaetzlich `letzter_fehler_report_page.*` falls der
+Fehler im Multi-level-Report-Popup auftrat) - das hilft, den betroffenen
+Schritt schnell zu identifizieren und die Selektoren im Skript gezielt
+nachzujustieren.
 
 Der erste Lauf sollte beobachtet werden, um eventuelle kleine
 Anpassungen direkt vorzunehmen (gleiches Prinzip wie beim bestehenden
