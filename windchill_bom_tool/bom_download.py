@@ -75,16 +75,17 @@ def click_text(scope, text: str, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
 def find_search_box(page):
     """Windchill-Suchfeld oben rechts im Header.
 
-    Die exakte Feldkennung ist ohne Live-Zugriff auf den Seitenquelltext
-    nicht mit Sicherheit bekannt, daher werden mehrere Strategien probiert.
-    Falls keine greift, wird einmalig um einen manuellen Klick gebeten -
-    danach laeuft der Rest wieder automatisch (gleiches Prinzip wie beim
-    bestehenden SAP-Tool).
+    id="gloabalSearchField" (Tippfehler original von Windchill, kein
+    Schreibfehler hier) wurde am 21.09. per DevTools am echten Feld
+    bestaetigt - das ist die primaere, zuverlaessige Strategie. Die
+    weiteren Kandidaten sind nur ein Sicherheitsnetz, falls sich die
+    Windchill-Version/id einmal aendert. Bewusst KEIN "letztes
+    sichtbares Textfeld"-Fallback mehr: das hat zuverlaessig ein
+    verstecktes internes Feld des "Alle Typen"-Dropdowns getroffen statt
+    des echten Suchfelds und dieses dabei geoeffnet.
     """
-    # Absichtlich KEIN "letztes sichtbares Textfeld"-Fallback mehr: das hat
-    # zuverlaessig ein verstecktes internes Feld des "Alle Typen"-Dropdowns
-    # getroffen statt des echten Suchfelds und dieses dabei geoeffnet.
     candidates = [
+        lambda: page.locator("#gloabalSearchField"),
         lambda: page.locator("input[placeholder*='Such' i]"),
         lambda: page.locator("input[placeholder*='Search' i]"),
         lambda: page.get_by_role("searchbox"),
