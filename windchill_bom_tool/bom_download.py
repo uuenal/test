@@ -227,10 +227,16 @@ def run_export(material_number: str, output_path: Path) -> None:
             print("Oeffne Structure-Ansicht ...")
             click_text(page, ["Structure", "Struktur"])
 
+            # Der komplette Struktur-Bereich (inkl. Reports/Berichte-
+            # Toolbar) laedt in einem eigenen iframe (id="msrIFrame"),
+            # per letztem Fehler-HTML-Dump bestaetigt - dort muss gezielt
+            # gesucht werden, nicht im Hauptdokument.
+            structure_frame = page.frame_locator("#msrIFrame")
+
             print("Oeffne Multilevel Report ...")
-            click_text(page, ["Reports", "Berichte"])
+            click_text(structure_frame, ["Reports", "Berichte"])
             with context.expect_page(timeout=DEFAULT_TIMEOUT_MS) as new_page_info:
-                click_text(page, ["Multilevel Report", "mehrstufiger Bericht"])
+                click_text(structure_frame, ["Multilevel Report", "mehrstufiger Bericht"])
             report_page = new_page_info.value
             report_page.wait_for_load_state()
 
