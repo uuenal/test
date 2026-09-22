@@ -86,14 +86,24 @@ def locate_text(page, text, timeout: int = DEFAULT_TIMEOUT_MS):
     faelschlich getroffen wird. Fallback auf reinen Text, falls keine der
     beiden Rollen passt (z. B. Tabs, die als <span> gerendert werden).
 
-    Alle Kombinationen aus Frame/Sprachvariante/Rolle werden rundenweise
-    mit kurzen Probes durchprobiert, bis der volle Timeout ausgeschoepft
-    ist - so bekommt kein Kandidat unfair wenig Zeit, egal in welchem
-    Frame oder an welcher Position in der Liste er steht.
+    Alle Sprachvarianten und beide Rollen werden je Frame zu EINEM
+    kombinierten Locator zusammengefasst (Playwright .or_()) statt
+    einzeln nacheinander geprueft - das haelt die Kosten pro Frame/Runde
+    niedrig (2 Pruefungen statt 6), waehrend rundenweise ueber alle
+    Frames rotiert wird, bis der volle Timeout ausgeschoepft ist. So
+    bekommt kein Frame unfair wenig Zeit, aber es wird auch nicht laenger
+    gewartet als noetig, sobald das Element tatsaechlich sichtbar wird.
     """
     labels = [text] if isinstance(text, str) else list(text)
-    probe_timeout = 300
+    probe_timeout = 200
     deadline = time.monotonic() + timeout / 1000
+
+    def combine(build_locator):
+        combined = None
+        for label in labels:
+            candidate = build_locator(label)
+            combined = candidate if combined is None else combined.or_(candidate)
+        return combined.first
 
     def probe(locator) -> bool:
         try:
@@ -104,14 +114,17 @@ def locate_text(page, text, timeout: int = DEFAULT_TIMEOUT_MS):
 
     while True:
         for scope in [page] + list(page.frames):
-            for label in labels:
-                for role in ("link", "button"):
-                    candidate = scope.get_by_role(role, name=label, exact=True).first
-                    if probe(candidate):
-                        return candidate
-                candidate = scope.get_by_text(label, exact=True).first
-                if probe(candidate):
-                    return candidate
+            role_locator = combine(
+                lambda label: scope.get_by_role("link", name=label, exact=True).or_(
+                    scope.get_by_role("button", name=label, exact=True)
+                )
+            )
+            if probe(role_locator):
+                return role_locator
+
+            text_locator = combine(lambda label: scope.get_by_text(label, exact=True))
+            if probe(text_locator):
+                return text_locator
         if time.monotonic() >= deadline:
             break
 
@@ -136,21 +149,20 @@ def find_search_box(page):
     verstecktes internes Feld des "Alle Typen"-Dropdowns getroffen statt
     des echten Suchfelds und dieses dabei geoeffnet.
     """
-    candidates = [
-        lambda: page.locator("#gloabalSearchField"),
-        lambda: page.locator("input[placeholder*='Such' i]"),
-        lambda: page.locator("input[placeholder*='Search' i]"),
-        lambda: page.get_by_role("searchbox"),
-        lambda: page.locator("input[type='search']"),
-        lambda: page.locator("input[title*='Search' i]"),
-    ]
-    for build_locator in candidates:
-        try:
-            locator = build_locator()
-            locator.wait_for(state="visible", timeout=3000)
-            return locator
-        except PlaywrightTimeoutError:
-            continue
+    combined = (
+        page.locator("#gloabalSearchField")
+        .or_(page.locator("input[placeholder*='Such' i]"))
+        .or_(page.locator("input[placeholder*='Search' i]"))
+        .or_(page.get_by_role("searchbox"))
+        .or_(page.locator("input[type='search']"))
+        .or_(page.locator("input[title*='Search' i]"))
+        .first
+    )
+    try:
+        combined.wait_for(state="visible", timeout=5000)
+        return combined
+    except PlaywrightTimeoutError:
+        pass
 
     # Falls das faelschlich geoeffnete "Alle Typen"-Dropdown noch offen ist
     # (aus einem vorherigen Fehlversuch), erst schliessen.
@@ -191,14 +203,18 @@ def dismiss_startup_notice(page) -> None:
     except PlaywrightTimeoutError:
         return
 
+    combined = None
     for label in NOTICE_CONFIRM_LABELS:
-        try:
-            button = page.get_by_text(label, exact=True).first
-            button.wait_for(state="visible", timeout=1000)
-            button.click()
-            return
-        except PlaywrightTimeoutError:
-            continue
+        candidate = page.get_by_text(label, exact=True)
+        combined = candidate if combined is None else combined.or_(candidate)
+    combined = combined.first
+
+    try:
+        combined.wait_for(state="visible", timeout=2000)
+        combined.click()
+        return
+    except PlaywrightTimeoutError:
+        pass
 
     # Kein passender Button gefunden - evtl. reicht das Setzen der Checkbox.
     page.keyboard.press("Enter")
