@@ -258,7 +258,7 @@ def run_export(material_number: str, output_path: Path) -> None:
             )
             export_submenu.hover()
             with report_page.expect_download(timeout=DEFAULT_TIMEOUT_MS) as download_info:
-                click_text(report_page, ["Export List to XLSX", "Liste in xlsx exportieren"])
+                click_text(report_page, ["Export List to XLSX", "Liste in XLSX exportieren"])
             download = download_info.value
             download.save_as(str(output_path))
 
