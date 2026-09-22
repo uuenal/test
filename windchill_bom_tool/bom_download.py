@@ -78,6 +78,13 @@ def locate_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS):
     """
     labels = [text] if isinstance(text, str) else list(text)
 
+    def combine(build_locator):
+        combined = None
+        for label in labels:
+            candidate = build_locator(label)
+            combined = candidate if combined is None else combined.or_(candidate)
+        return combined.first
+
     def probe(locator, wait_timeout: int):
         try:
             locator.wait_for(state="visible", timeout=wait_timeout)
@@ -85,18 +92,19 @@ def locate_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS):
         except PlaywrightTimeoutError:
             return None
 
-    for label in labels:
-        for role in ("link", "button"):
-            found = probe(scope.get_by_role(role, name=label, exact=True).first, 3000)
-            if found is not None:
-                return found
-
-    for index, label in enumerate(labels):
-        is_last = index == len(labels) - 1
-        wait_timeout = timeout if is_last else 3000
-        found = probe(scope.get_by_text(label, exact=True).first, wait_timeout)
+    # Alle Sprachvarianten zu je einem Locator kombinieren (Playwright
+    # .or_()), statt sie nacheinander mit kuenstlich verkuerzten Timeouts
+    # abzuklappern - sonst bekommt nur der zuletzt probierte Kandidat die
+    # volle Wartezeit, obwohl z. B. der erste (korrekte) Kandidat nur
+    # etwas laenger zum Rendern braucht.
+    for role in ("link", "button"):
+        found = probe(combine(lambda label, role=role: scope.get_by_role(role, name=label, exact=True)), timeout)
         if found is not None:
             return found
+
+    found = probe(combine(lambda label: scope.get_by_text(label, exact=True)), timeout)
+    if found is not None:
+        return found
 
     raise PlaywrightTimeoutError(f"Kein Element mit Text {labels!r} gefunden.")
 
