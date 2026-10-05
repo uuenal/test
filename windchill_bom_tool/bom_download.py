@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -109,22 +110,36 @@ def locate_text(page, text, timeout: int = DEFAULT_TIMEOUT_MS):
         try:
             locator.wait_for(state="visible", timeout=probe_timeout)
             return True
-        except PlaywrightTimeoutError:
+        except PlaywrightError:
+            # Deckt sowohl echte Timeouts (Element (noch) nicht da) als
+            # auch z. B. "Frame was detached" ab - Windchill ersetzt
+            # iframes gelegentlich waehrend eine Suche laeuft (etwa durch
+            # die vorangehende Hover-Aktion). Beides heisst hier dasselbe:
+            # in dieser Runde nicht gefunden, naechste Runde erneut
+            # probieren (page.frames() wird dort frisch neu abgefragt).
             return False
 
     while True:
-        for scope in [page] + list(page.frames):
-            role_locator = combine(
-                lambda label: scope.get_by_role("link", name=label, exact=True).or_(
-                    scope.get_by_role("button", name=label, exact=True)
-                )
-            )
-            if probe(role_locator):
-                return role_locator
+        try:
+            scopes = [page] + list(page.frames)
+        except PlaywrightError:
+            scopes = [page]
 
-            text_locator = combine(lambda label: scope.get_by_text(label, exact=True))
-            if probe(text_locator):
-                return text_locator
+        for scope in scopes:
+            try:
+                role_locator = combine(
+                    lambda label: scope.get_by_role("link", name=label, exact=True).or_(
+                        scope.get_by_role("button", name=label, exact=True)
+                    )
+                )
+                if probe(role_locator):
+                    return role_locator
+
+                text_locator = combine(lambda label: scope.get_by_text(label, exact=True))
+                if probe(text_locator):
+                    return text_locator
+            except PlaywrightError:
+                continue
         if time.monotonic() >= deadline:
             break
 
@@ -133,8 +148,17 @@ def locate_text(page, text, timeout: int = DEFAULT_TIMEOUT_MS):
 
 def click_text(scope, text, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
     """Klickt auf das erste sichtbare Element mit einem der angegebenen
-    Texte. Siehe locate_text() fuer die Such-/Mehrsprachigkeitslogik."""
-    locate_text(scope, text, timeout).click()
+    Texte. Siehe locate_text() fuer die Such-/Mehrsprachigkeitslogik.
+
+    Ein Klick-Versuch wird wiederholt, falls der Frame genau zwischen
+    Fund und Klick verschwindet (z. B. durch einen Windchill-eigenen
+    iframe-Reload) - das aeussert sich als Playwright-Fehler, nicht als
+    sauberer Timeout.
+    """
+    try:
+        locate_text(scope, text, timeout).click()
+    except PlaywrightError:
+        locate_text(scope, text, timeout).click()
 
 
 def find_search_box(page):
