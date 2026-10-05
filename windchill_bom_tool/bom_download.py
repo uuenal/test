@@ -254,6 +254,14 @@ def run_export(material_number: str, output_path: Path) -> None:
             headless=False,
             accept_downloads=True,
         )
+        # Das Multi-level-Report-Popup schliesst sich offenbar selbst kurz
+        # nach dem Download-Start (window.close() in dessen eigenem JS).
+        # Da es oft das einzige offene Fenster ist, beendet das den
+        # gesamten Chromium-Prozess mitsamt Kontext, bevor download.save_as()
+        # fertig ist ("Target page, context or browser has been closed").
+        # window.close() fuer alle Seiten dieses Kontexts (inkl. Popups)
+        # zu einem No-Op machen, verhindert das direkt an der Quelle.
+        context.add_init_script("window.close = function() {};")
         page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(DEFAULT_TIMEOUT_MS)
         report_page = None
