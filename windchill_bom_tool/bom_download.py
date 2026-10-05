@@ -14,6 +14,7 @@ Firmennetz oder per VPN verbunden sein.
 """
 
 import re
+import shutil
 import sys
 import time
 import urllib.error
@@ -305,17 +306,28 @@ def run_export(material_number: str, output_path: Path) -> None:
                 report_page, ["Export List to File", "Liste in Datei exportieren"]
             )
             export_submenu.hover()
-            # Auf Kontext-Ebene abfangen statt auf report_page: dieses
-            # alte JSP-Popup schliesst sich offenbar selbst kurz nach dem
-            # Download-Start (der native "Speichern unter"-Dialog, der
-            # das im echten Browser blockieren wuerde, entfaellt unter
-            # Playwright, da Downloads automatisch akzeptiert werden) -
-            # das fuehrte zu "Target page ... has been closed" bei
-            # save_as(), wenn auf der Seite selbst gelauscht wurde.
             with context.expect_event("download", timeout=DEFAULT_TIMEOUT_MS) as download_info:
                 click_text(report_page, ["Export List to XLSX", "Liste in XLSX exportieren"])
             download = download_info.value
-            download.save_as(str(output_path))
+
+            # Diagnose: die bisherigen Versuche (Download auf report_page
+            # bzw. context abfangen, window.close() unterbinden) haben
+            # "Target page, context or browser has been closed" bei
+            # save_as() nicht behoben - das zeigt genau, welches Fenster
+            # zu welchem Zeitpunkt noch offen ist, um die Ursache
+            # einzugrenzen.
+            print(f"[Diagnose] Download-URL: {download.url}")
+            print(f"[Diagnose] report_page geschlossen: {report_page.is_closed()}")
+            print(f"[Diagnose] urspruengliche page geschlossen: {page.is_closed()}")
+            print(f"[Diagnose] offene Seiten im Kontext: {len(context.pages)}")
+
+            try:
+                temp_path = download.path()
+                print(f"[Diagnose] download.path() erfolgreich: {temp_path}")
+                shutil.copy(str(temp_path), str(output_path))
+            except Exception as path_exc:
+                print(f"[Diagnose] download.path() fehlgeschlagen: {path_exc}")
+                download.save_as(str(output_path))
 
             print(f"Fertig. Gespeichert unter: {output_path}")
 
